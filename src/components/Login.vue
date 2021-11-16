@@ -54,15 +54,13 @@ export default {
     handleLogin(user) {
       this.loading = true;
       this.message = "";
-
-      this.$store.dispatch('auth/login', user).then(
+      this.$store.dispatch('ws/initializeConnection', user).then(
           () => {
-            this.loading = false;
-            this.$router.push("/home");
+            this.$router.push('/chat');
           },
           () => {
             this.loading = false;
-            this.message = "Błąd. Todo";
+            this.message = "Nieprawidłowa nazwa użytkownika lub hasło";
           }
       );
     },

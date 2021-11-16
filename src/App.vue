@@ -1,41 +1,31 @@
 <template>
   <div id="app">
-    <nav class="navbar navbar-expand navbar-dark bg-dark">
-
-      <a href="/" class="navbar-brand">Prywatny komunikator</a>
-
-      <div class="navbar-nav mr-auto">
-        <li class="nav-item">
-          <router-link v-if="isLoggedIn" to="/" class="nav-link">{{ 'Witaj ponownie' }}</router-link>
-        </li>
-      </div>
-
-      <div v-if="!isLoggedIn" class="navbar-nav ml-auto">
+    <nav class="navbar navbar-expand app-navbar">
+      <a href="/chat" class="navbar-brand">Prywatny komunikator</a>
+      <div v-if="!isConnected" class="navbar-nav ml-auto">
         <li class="nav-item">
           <router-link to="/register" class="nav-link">
-            <font-awesome-icon icon="user-plus"/> Rejestracja
+            <font-awesome-icon icon="user-plus"/>
+            Rejestracja
           </router-link>
         </li>
-
-        <li v-if="!isLoggedIn" class="nav-item">
+        <li v-if="!isConnected" class="nav-item">
           <router-link to="/login" class="nav-link">
-            <font-awesome-icon icon="sign-in-alt"/> Logowanie
+            <font-awesome-icon icon="sign-in-alt"/>
+            Logowanie
           </router-link>
         </li>
       </div>
-
-      <div v-if="isLoggedIn" class="navbar-nav ml-auto">
+      <div v-if="isConnected" class="navbar-nav ml-auto">
         <li class="nav-item">
           <a class="nav-link" @click="logOut">
-            <font-awesome-icon icon="sign-out-alt" /> Wyloguj się
+            <font-awesome-icon icon="sign-out-alt"/>
+            Wyloguj się
           </a>
         </li>
       </div>
     </nav>
-
-    <div class="container mt-5">
-      <router-view />
-    </div>
+    <router-view class="view"/>
   </div>
 </template>
 
@@ -43,17 +33,41 @@
 
 export default {
   computed: {
-    isLoggedIn() {
-      return this.$store.getters['auth/isLoggedIn'];
+    isConnected() {
+      return this.$store.getters['ws/isConnected'];
     }
   },
   methods: {
     logOut() {
-      this.$store.dispatch('auth/logout');
-      this.$router.push('/login');
+      this.$store.dispatch('ws/disconnect').then(() => this.$router.push('/login'));
     }
   },
   created() {
   }
 };
 </script>
+
+<style scoped>
+
+.app-navbar {
+  height: 65px;
+  border-bottom: 1px solid #e6ecf3;;
+}
+
+#app {
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  margin: 0;
+  width: 100%;
+  background: #f4f5fb;
+}
+
+#view {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+</style>
+

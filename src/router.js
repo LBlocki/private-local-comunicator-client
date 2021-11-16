@@ -1,7 +1,7 @@
 import {createRouter, createWebHistory} from "vue-router";
 import Login from "./components/Login.vue";
 import Register from "./components/Register.vue";
-import Home from "./components/Home";
+import Chat from "./components/Chat";
 import store from "./store/index"
 
 const routes = [
@@ -20,8 +20,8 @@ const routes = [
         },
     },
     {
-        path: "/home",
-        component: Home,
+        path: "/chat",
+        component: Chat,
         meta: {
             requiresAuth: true
         },
@@ -38,19 +38,21 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-    const loggedIn = store.getters['auth/isLoggedIn'];
-    console.log(to.matched.some(record => !record.meta.requiresAuth));
-    console.log(loggedIn);
-    if (to.matched.some(record => record.meta.requiresAuth) && !loggedIn) {
+
+    const isConnected = store.getters['ws/isConnected'];
+    const hasCredentials = store.getters['ws/username'] && store.getters['ws/password'];
+
+    if(!to.matched.some(record => record.meta.requiresAuth) && (isConnected || hasCredentials)) {
+        next({
+            path: '/chat'
+        })
+    } else if(to.matched.some(record => record.meta.requiresAuth) && !hasCredentials) {
         next({
             path: '/login'
-        });
-    } else if (to.matched.some(record => !record.meta.requiresAuth) && loggedIn) {
-        next({
-            path: '/home'
-        });
+        })
+    } else {
+        next();
     }
-    next();
 
 });
 
