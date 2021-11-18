@@ -47,9 +47,7 @@ router.beforeEach((to, from, next) => {
             path: '/chat'
         })
     } else if(to.matched.some(record => record.meta.requiresAuth) && !hasCredentials) {
-        next({
-            path: '/login'
-        })
+        store.dispatch('ws/clearCredentials').then(() => next({path: '/login'}));
     } else {
         next();
     }

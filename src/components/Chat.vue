@@ -1,61 +1,67 @@
 <template>
-  <div class="container-fluid">
+  <div class="container-fluid" v-if="isConnected()">
     <div class="row">
-      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 col-3 search-container">
+      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 search-container" v-bind:class="{'no-show': !inRoomSelectionState()}">
         <div class="search-group">
           <div class="form-outline">
-            <input type="search" id="form1" class="form-control" placeholder="Wyszukaj użytkownika"
-                   aria-label="Search"/>
+            <input type="search" id="form1" v-model="searchedUsername" class="form-control"
+                   placeholder="Wyszukaj użytkownika" aria-label="Search"/>
           </div>
         </div>
       </div>
-      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 col-9 chat-name-container">
-        <span v-if="selectedRoom">To: <span class="person-name">Emily Russell</span></span>
+      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 chat-name-container" v-if="isRoomSelected()">
+        <font-awesome-icon @click="setRoomSelectionState(true)" class="back-icon" icon="arrow-left"/>
+        <span class="person-name" v-if="isRoomSelected()">Rozmówca: <span>{{getCurrentSelectedRoomName()}}</span></span>
       </div>
     </div>
     <div class="row list-row">
-      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 col-3 user-list-container">
+      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 user-list-container"
+           v-bind:class="{'no-show': !inRoomSelectionState()}">
         <ul class="m-0 p-0 person-list">
           <li class="person"
-              v-bind:class="{ 'active-user': getCurrentSelectedRoom() === room}"
+              v-bind:class="{ 'active-user': isCurrentSelectedRoom(room)}"
               @click="setNewSelectedRoom(room)"
-              v-for="room in getRooms()" :key="room.id">
+              v-for="room in getRoomList()" :key="room.id">
             <img src="https://www.bootdey.com/img/Content/avatar/avatar1.png" alt="Retail Admin">
-            <span class="person-name">{{room.name}}</span>
+            <div class="d-flex flex-column">
+              <span class="person-name">{{ getRoomName(room) }}</span>
+              <span v-if="isNewMessageForRoom(room.id)">Masz nową wiadomość</span>
+            </div>
           </li>
         </ul>
       </div>
-      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 col-9">
-        <div v-if="selectedRoom" class="chat-container">
+      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 position-relative" v-bind:class="{'no-show': inRoomSelectionState()}">
+        <div v-if="isRoomSelected()" class="chat-container">
           <ul>
-            <li class="chat-left">
-              <div class="chat-avatar">
+            <li v-for="message in getMessagesForSelectedRoom()"
+                v-bind:class="{ 'chat-left': isUserMessageCreator(message), 'chat-right': !isUserMessageCreator(message)}">
+              <div class="chat-avatar" v-if="isUserMessageCreator(message)">
                 <img src="https://www.bootdey.com/img/Content/avatar/avatar3.png" alt="Retail Admin">
-                <div class="chat-name">Russell</div>
+                <div class="chat-name">{{ getUserUsername() }}</div>
               </div>
-              <div class="chat-text">Hello, I'm Russell.
-                <br>How can I help you today?
-              </div>
-              <div class="chat-hour">08:55 <span class="fa fa-check-circle"></span></div>
-            </li>
-            <li class="chat-right">
-              <div class="chat-hour">08:56 <span class="fa fa-check-circle"></span></div>
-              <div class="chat-text">Hi, Russell
-                <br> I need more information about Developer Plan.
-              </div>
-              <div class="chat-avatar">
+              <div class="chat-text chat-creator" v-if="isUserMessageCreator(message)">{{ message.body }}</div>
+              <div class="chat-hour" v-if="isUserMessageCreator(message)">
+                {{ getFormattedDate(message.creationDate) }}<span
+                  class="fa fa-check-circle"></span></div>
+              <div class="chat-hour" v-if="!isUserMessageCreator(message)">
+                {{ getFormattedDate(message.creationDate) }}<span
+                  class="fa fa-check-circle"></span></div>
+              <div class="chat-text chat-non-creator" v-if="!isUserMessageCreator(message)">{{ message.body }}</div>
+              <div class="chat-avatar" v-if="!isUserMessageCreator(message)">
                 <img src="https://www.bootdey.com/img/Content/avatar/avatar3.png" alt="Retail Admin">
-                <div class="chat-name">Sam</div>
+                <div class="chat-name">{{ message.creatorUsername }}</div>
               </div>
             </li>
           </ul>
         </div>
-        <div v-if="!selectedRoom" class="no-room-text">
+        <div v-if="!isRoomSelected()" class="no-room-text">
           <p>Wybierz pokój, aby wyświetlić wiadomości</p>
         </div>
-        <div v-if="selectedRoom" class="form-group mt-3 mb-0 send-area">
-          <textarea v-model="newMessage" class="form-control" rows="3" placeholder="Type your message here..."></textarea>
-          <button @click="handleMessageSend" class="btn btn-secondary w-25 send-button">Wyślij</button>
+        <div v-if="isRoomSelected()" class="form-group mt-3 mb-0 send-area">
+          <textarea v-model="newMessageBody" class="form-control" rows="3" placeholder="Type your message here..."></textarea>
+          <button @click="handleMessageSend" :disabled="sending || !newMessageBody"
+                  class="btn btn-secondary w-25 send-button">Wyślij
+          </button>
         </div>
       </div>
     </div>
@@ -63,14 +69,16 @@
 </template>
 
 <script>
-
+//todo 1. POWIADOMIOENIA JAK PISZE 4. Odświeżanie na ostatnim czacie ( routing)
 export default {
   name: "ChatNew",
   data() {
     return {
-      selectedRoom: null,
-      messages: [],
-      newMessage: ''
+      selectedRoom: undefined,
+      newMessageBody: undefined,
+      roomSelectionState: true,
+      searchedUsername: undefined,
+      sending: false,
     }
   },
   created() {
@@ -78,7 +86,7 @@ export default {
     const isConnected = this.$store.getters['ws/isConnected'];
     const hasCredentials = this.$store.getters['ws/username'] && this.$store.getters['ws/password'];
 
-    if(!isConnected && hasCredentials) {
+    if (!isConnected && hasCredentials) {
       this.$store.dispatch('ws/initializeConnection', {
         username: this.$store.getters['ws/username'],
         password: this.$store.getters['ws/password']
@@ -86,27 +94,103 @@ export default {
     }
   },
   methods: {
-    getRooms() {
-      return this.$store.getters['ws/rooms'];
+    isConnected() {
+      return this.$store.getters['ws/isConnected'];
+    },
+    isRoomSelected() {
+      return this.selectedRoom;
+    },
+    getCurrentSelectedRoomName() {
+      return this.getRoomName(this.selectedRoom);
+    },
+    inRoomSelectionState() {
+      return this.roomSelectionState;
+    },
+    setRoomSelectionState(bool) {
+      this.roomSelectionState = bool;
+      if (this.roomSelectionState) {
+        this.selectedRoom = undefined;
+      }
+    },
+    isCurrentSelectedRoom(room) {
+      return this.selectedRoom === room;
     },
     setNewSelectedRoom(room) {
       this.selectedRoom = room;
-      this.$store.dispatch('ws/fetchMessagesForRoom', room.id).then(() => {
-        this.messages = this.$store.getters['ws/roomMessages'];
-      })
-
+      if (this.isNewMessageForRoom(room.id)) {
+        this.$store.dispatch('ws/setMessagesAsRead', room.id);
+      }
+      this.setRoomSelectionState(false);
+    },
+    getRoomList() {
+      return this.$store.getters['ws/roomMessagesList']
+          .map(roomMessages => roomMessages.room)
+          .filter(room => {
+            if (this.searchedUsername) {
+              const username = room.users.filter(user => user.username !== this.getUserUsername())[0].username;
+              return username.includes(this.searchedUsername);
+            }
+            return true;
+          });
+    },
+    getRoomName(room) {
+      return room.users.filter(user => user.username !== this.getUserUsername())[0].username;
+    },
+    getMessagesForSelectedRoom() {
+      return this.$store.getters['ws/roomMessagesList']
+          .filter(roomMessages => roomMessages.room === this.selectedRoom)[0].messages
+          .sort((x, y) => x.creationDate - y.creationDate);
+    },
+    getFormattedDate(stringDate) {
+      const date = new Date(stringDate);
+      const hours = date.getHours() < 10 ? "0" + date.getHours() : date.getHours();
+      const minutes = date.getMinutes() < 10 ? "0" + date.getMinutes() : date.getMinutes();
+      return date.getDate() + "-" + (date.getMonth() + 1) + "-" + date.getFullYear() + " " + hours + ":" + minutes;
+    },
+    isUserMessageCreator(message) {
+      return message.creatorUsername === this.getUserUsername();
     },
     getCurrentSelectedRoom() {
       return this.selectedRoom;
     },
     handleMessageSend() {
-      if(this.newMessage && this.selectedRoom) {
-        //todo
-        this.newMessage = null;
+      if (!this.sending && this.newMessageBody) {
+        this.sending = true;
+        const message = {
+          id: undefined,
+          creatorUsername: this.getUserUsername(),
+          roomId: this.getCurrentSelectedRoom().id,
+          body: this.newMessageBody,
+          creationDate: new Date()
+        };
+        const recipient = this.getCurrentSelectedRoom().users.filter(user => user.username !== this.getUserUsername())[0].username;
+        this.$store.dispatch('ws/sendMessage', {message, recipient}).then(
+            () => {
+              this.newMessageBody = '';
+              this.sending = false;
+            },
+            () => this.sending = false);
       }
-    }
+    },
+    getUserUsername() {
+      return this.$store.getters['ws/username'];
+    },
+    isNewMessageForRoom(roomId) {
+      const messages = this.$store.getters['ws/roomMessagesList']
+          .filter(roomMessages => roomMessages.room.id === roomId)[0].messages
+          .sort((x, y) => x.creationDate - y.creationDate);
+
+      const myMessages = messages.filter(message => message.creatorUsername !== this.getUserUsername());
+
+      if (myMessages && myMessages.length > 0) {
+        return !myMessages[myMessages.length - 1].readByRecipient;
+      }
+      return false;
+    },
   }
 };
+
+//todo wyszukiwarka
 
 </script>
 
@@ -145,6 +229,12 @@ export default {
   margin-right: 10px;
 }
 
+.back-icon {
+  margin-right: 20px;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
 .person:hover {
   background-color: #ffffff;
   background-image: linear-gradient(right, #e9eff5, #ffffff);
@@ -157,7 +247,7 @@ export default {
 
 .person-name {
   font-weight: 600;
-  font-size: .95rem;
+  font-size: 1rem;
 }
 
 .no-room-text {
@@ -176,7 +266,9 @@ export default {
 
 .chat-container {
   overflow-y: auto;
-  height: 80vh;
+  height: calc(100% - 120px);
+  max-height: 80vh;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column-reverse;
   padding: 1rem;
@@ -217,18 +309,28 @@ li.chat-right > .chat-avatar {
 }
 
 .chat-name {
-  font-size: .75rem;
+  font-size: 1.1rem;
   color: #999999;
   text-align: center;
 }
 
+.chat-creator {
+  background: #ffffff;
+}
+
+.chat-non-creator {
+  background: #ffffff;
+}
+
 .chat-text {
+  align-self: center;
   padding: .4rem 1rem;
   border-radius: 4px;
-  background: #ffffff;
   font-weight: 300;
   line-height: 150%;
   position: relative;
+  word-wrap: break-word;
+  max-width: 40%;
 }
 
 .chat-text:before {
@@ -279,6 +381,11 @@ ul {
 
 .send-area {
   display: flex;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 15px;
 }
 
 .send-button {
@@ -294,11 +401,12 @@ ul {
   }
 
   .person img {
-    display: none;
+    width: 40px;
+    height: 40px;
   }
 
   .person {
-    justify-content: center;
+    justify-content: left;
 
   }
 
@@ -308,7 +416,31 @@ ul {
 
   .person-name {
     font-weight: 500;
-    font-size: .8rem;
+    font-size: 1rem;
+  }
+
+  .chat-right .chat-text {
+    align-self: flex-end;
+  }
+
+  .chat-left .chat-text {
+    align-self: flex-start;
+  }
+
+  .chat-left .chat-avatar img {
+    margin-right: 10px;
+  }
+
+  .chat-right .chat-avatar img {
+    margin-left: 10px;
+  }
+
+  .chat-right .chat-hour {
+    display: none;
+  }
+
+  .chat-left .chat-hour {
+    display: none;
   }
 
   .chat-name-container {
@@ -317,26 +449,18 @@ ul {
     margin-left: auto;
   }
 
-  .chat-container {
-    height: 65vh;
-  }
-
-  .search-container {
-    display: none;
-  }
-
   .user-list-container {
     padding: 0;
   }
 
-  li.chat-left, li.chat-right {
+  .chat-left, .chat-right {
     flex-direction: column;
     margin-bottom: 30px;
   }
 
   .chat-avatar img {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
   }
 
   li.chat-left .chat-avatar {
@@ -372,9 +496,15 @@ ul {
   }
 
   li .chat-text {
-    font-size: .8rem;
+    font-size: 1rem;
+    max-width: 70%;
   }
 }
 
+@media (max-width: 576px) {
+  .no-show {
+    display: none;
+  }
+}
 
 </style>
