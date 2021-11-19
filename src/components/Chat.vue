@@ -69,7 +69,7 @@
 </template>
 
 <script>
-//todo 1. POWIADOMIOENIA JAK PISZE 4. Odświeżanie na ostatnim czacie ( routing)
+//todo 1. POWIADOMIOENIA JAK PISZE
 export default {
   name: "ChatNew",
   data() {
@@ -90,6 +90,11 @@ export default {
       this.$store.dispatch('ws/initializeConnection', {
         username: this.$store.getters['ws/username'],
         password: this.$store.getters['ws/password']
+      }).then(() => {
+        const id = parseInt(this.$router.currentRoute.value.query.id);
+        if(id) {
+          this.setNewSelectedRoom(this.getRoomById(id));
+        }
       })
     }
   },
@@ -110,10 +115,14 @@ export default {
       this.roomSelectionState = bool;
       if (this.roomSelectionState) {
         this.selectedRoom = undefined;
+        this.$router.push({path: '/chat'});
       }
     },
     isCurrentSelectedRoom(room) {
       return this.selectedRoom === room;
+    },
+    getRoomById(roomId) {
+      return this.getRoomList().find(room => room.id === roomId);
     },
     setNewSelectedRoom(room) {
       this.selectedRoom = room;
@@ -121,6 +130,7 @@ export default {
         this.$store.dispatch('ws/setMessagesAsRead', room.id);
       }
       this.setRoomSelectionState(false);
+      this.$router.push({path: '/chat', query: {id: room.id}});
     },
     getRoomList() {
       return this.$store.getters['ws/roomMessagesList']
