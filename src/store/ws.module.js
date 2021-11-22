@@ -5,7 +5,7 @@ export const ws = {
     namespaced: true,
     state: {
         isConnected: false,
-        roomMessagesList: []
+        roomMessagesList: [],
     },
     actions: {
         initializeConnection({commit}, user) {
@@ -80,7 +80,7 @@ export const ws = {
     mutations: {
         setConnected(state, {user, roomMessagesList}) {
             state.isConnected = true;
-            state.roomMessagesList = roomMessagesList;
+            state.roomMessagesList = roomMessagesList.sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
             sessionStorage.setItem("username", user.username);
             sessionStorage.setItem("password", user.password);
         },
@@ -94,18 +94,18 @@ export const ws = {
             });
         },
         messagesRead(state, roomId) {
-            const messages = state.roomMessagesList.find(rm => rm.room.id === roomId).messages
-                .filter(message => message.creatorUsername !== sessionStorage.getItem("username"));
-
-            const myMessages = messages.filter(message => message.creatorUsername === sessionStorage.getItem("username"));
-            const recipientMessages = messages.filter(message => message.creatorUsername !== sessionStorage.getItem("username"))
+            const username = sessionStorage.getItem("username");
+            const room = state.roomMessagesList.find(rm => rm.room.id === roomId);
+            const readRecipientMessages = room.messages.filter(message => message.creatorUsername !== username)
                 .map(message => {
                     message.readByRecipient = true;
                     return message;
                 });
+            const myMessages = room.messages.filter(message => message.creatorUsername === username);
+            const combinedMessages = myMessages.concat(readRecipientMessages);
 
-            state.roomMessagesList.find(rm => rm.room.id === roomId).messages = myMessages.concat(recipientMessages);
-
+            state.roomMessagesList.find(rm => rm.room.id === roomId).messages =
+                combinedMessages.sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
         },
         setDisconnected(state) {
             state.isConnected = false;
