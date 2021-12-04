@@ -30,6 +30,7 @@
 
 import {Form, Field, ErrorMessage} from "vee-validate";
 import * as yup from "yup";
+import CryptoService from "../services/crypto.service";
 
 export default {
   name: "Login",
@@ -51,18 +52,40 @@ export default {
     };
   },
   methods: {
-    handleLogin(user) {
+    async handleLogin(user) {
       this.loading = true;
       this.message = "";
-      this.$store.dispatch('ws/initializeConnection', user).then(
-          () => {
-            this.$router.push('/chat');
-          },
-          () => {
-            this.loading = false;
-            this.message = "Nieprawidłowa nazwa użytkownika lub hasło";
-          }
-      );
+
+      try {
+        const iv = (await this.$store.dispatch('auth/getIvForWrappedSymmetricKey', user.username)).data;
+        const symmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, user.username);
+        const newSalt = await CryptoService.digest(user.username);
+        const arrayBufferIv = await CryptoService.convertBase64ToKey(iv);
+        const wrappingSymmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, newSalt);
+        const wrappedSymmetricKey = await CryptoService.wrapKeyUsingPredefinedIV(symmetricCryptoKey,
+            wrappingSymmetricCryptoKey, "raw", arrayBufferIv);
+
+        const loginData = {
+          username: user.username,
+          password: await CryptoService.convertKeyToBase64(wrappedSymmetricKey.key),
+          symmetricKey: symmetricCryptoKey
+        }
+
+        this.$store.dispatch('ws/initializeConnection', loginData).then(
+            () => {
+              console.log('routing');
+              this.$router.push('/chat');
+            },
+            () => {
+              this.loading = false;
+              this.message = "Nieprawidłowa nazwa użytkownika lub hasło";
+            }
+        );
+      } catch (error) {
+        this.loading = false;
+        this.message = "Nieprawidłowa nazwa użytkownika lub hasło";
+        throw error;
+      }
     },
   },
 };

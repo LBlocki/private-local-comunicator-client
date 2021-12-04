@@ -20,6 +20,9 @@
               Zarejestruj się
             </button>
           </div>
+          <div class="form-group">
+            <div v-if="message" class="alert alert-danger" role="alert">{{ message }}</div>
+          </div>
         </div>
       </Form>
     </div>
@@ -29,6 +32,7 @@
 <script>
 import {Form, Field, ErrorMessage} from "vee-validate";
 import * as yup from "yup";
+import CryptoService from "../services/crypto.service";
 
 export default {
   name: "Register",
@@ -58,20 +62,47 @@ export default {
     };
   },
   methods: {
-    handleRegister(user) {
+    async handleRegister(user) {
       this.message = "";
       this.loading = true;
 
-      this.$store.dispatch("auth/register", user).then(
-          () => {
-            this.loading = false;
-            this.$router.push("/login");
-          },
-          () => {
-            this.message = "Error. Todo...";
-            this.loading = false;
-          }
-      );
+      try {
+        //generacja pary RSA
+        const cryptoKeyPair= await CryptoService.generateKeyPair();
+
+        //generacja klucza symetrycznego:
+        const symmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, user.username);
+
+        //generacja klucza wrappującego do hashu klucza symetrycznego
+        const newSalt = await CryptoService.digest(user.username);
+        const wrappingSymmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, newSalt);
+
+        //Wrappowanie klucza prywatnego za pomocą klucza symetrycznego - bezpieczne
+        const wrappedPrivateKey = await CryptoService.wrapKey(cryptoKeyPair.privateKey, symmetricCryptoKey, "pkcs8");
+
+        //wrappowanie klucza symetrycznego za pomocą klucza publicznego - bezpieczne
+        const wrappedSymmetricKey = await CryptoService.wrapKey(symmetricCryptoKey, wrappingSymmetricCryptoKey, "raw");
+
+        //export klucza publicznego
+        const exportedPublicKey = await CryptoService.exportKey(cryptoKeyPair.publicKey, "spki");
+
+        const registrationData = {
+          username: user.username,
+          wrappedPrivateKey: await CryptoService.convertKeyToBase64(wrappedPrivateKey.key),
+          exportedPublicKey: await CryptoService.convertKeyToBase64(exportedPublicKey),
+          wrappedSymmetricKey: await CryptoService.convertKeyToBase64(wrappedSymmetricKey.key),
+          ivForPrivateKey: await CryptoService.convertKeyToBase64(wrappedPrivateKey.iv),
+          ivForSymmetricKey: await CryptoService.convertKeyToBase64(wrappedSymmetricKey.iv)
+        }
+
+        await this.$store.dispatch("auth/register", registrationData);
+        await this.$router.push("/login");
+
+      } catch (error) {
+        this.message = "Wystąpił problem. Spróbuj ponownie później";
+        this.loading = false;
+        throw error;
+      }
     },
   },
 };

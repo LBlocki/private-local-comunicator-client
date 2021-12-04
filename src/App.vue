@@ -18,7 +18,7 @@
       </div>
       <div v-if="isConnected" class="navbar-nav ml-auto">
         <li class="nav-item">
-          <a class="nav-link" @click="logOut">
+          <a class="nav-link sign-out" @click="logOut">
             <font-awesome-icon icon="sign-out-alt"/>
             Wyloguj się
           </a>
@@ -54,6 +54,10 @@ export default {
   border-bottom: 1px solid #e6ecf3;;
 }
 
+.sign-out {
+  cursor: pointer;
+}
+
 #app {
   height:100vh;
   display:flex;
@@ -61,12 +65,6 @@ export default {
   margin: 0;
   width: 100%;
   background: #f4f5fb;
-}
-
-#view {
-  flex:1;
-  display:flex;
-  flex-direction:column;
 }
 
 </style>

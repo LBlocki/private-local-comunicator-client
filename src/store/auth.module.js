@@ -13,6 +13,16 @@ export const auth = {
                     return Promise.reject(error);
                 }
             );
+        },
+        getIvForWrappedSymmetricKey({commit}, username) {
+            return AuthService.getIvForWrappedSymmetricKey(username).then(
+                iv => {
+                    return Promise.resolve(iv);
+                },
+                error => {
+                    return Promise.reject(error);
+                }
+            );
         }
     },
 };

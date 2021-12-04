@@ -1,5 +1,6 @@
 import SockJS from "sockjs-client";
 import Stomp from "webstomp-client";
+import cryptoService from "../services/crypto.service";
 
 export const ws = {
     namespaced: true,
@@ -8,16 +9,33 @@ export const ws = {
         roomMessagesList: [],
     },
     actions: {
-        initializeConnection({commit}, user) {
-            return new Promise((resolve, reject) => {
+        initializeConnection({commit}, loginData) {
+            return new Promise(async (resolve, reject) => {
                 this.socket = new SockJS("http://localhost:8080/api/rest/v1/ws");
                 this.stompClient = Stomp.over(this.socket);
-                this.stompClient.connect({username: user.username, password: user.password},
-                    () => {
-                        this.stompClient.subscribe("/app/chat.private.fetch.room.messages.list", message => {
-                            const roomMessagesList = JSON.parse(message.body);
-                            commit('setConnected', {user, roomMessagesList});
-                            resolve();
+                await this.stompClient.connect({
+                        username: loginData.username,
+                        password: loginData.password
+                    }, async () => {
+
+                        await this.stompClient.subscribe("/app/chat.private.fetch.initial.data", async message => {
+                            if (!sessionStorage.getItem("username")) {
+                                const body = JSON.parse(message.body);
+                                const wrappedBinaryPrivateKey = await cryptoService.convertBase64ToKey(body.wrappedPrivateKey);
+                                const binaryIvForPrivateKey = await cryptoService.convertBase64ToKey(body.ivForPrivateKey);
+                                const privateKey = await cryptoService.unwrapKey(
+                                    wrappedBinaryPrivateKey, loginData.symmetricKey, "pkcs8", binaryIvForPrivateKey);
+                                const rawPrivateKey = await cryptoService.exportKey(privateKey, "pkcs8");
+
+                                const encodedPrivateKey = await cryptoService.convertKeyToBase64(rawPrivateKey);
+                                const encodedPublicKey = body.exportedPublicKey;
+
+                                commit('setConnected', {loginData, message, encodedPrivateKey, encodedPublicKey});
+                                resolve();
+                            } else {
+                                commit('setConnected', {loginData, message});
+                                resolve();
+                            }
                         });
 
                         this.stompClient.subscribe(("/user/exchange/chat.message"), message => {
@@ -78,11 +96,21 @@ export const ws = {
         roomMessagesList: state => state.roomMessagesList
     },
     mutations: {
-        setConnected(state, {user, roomMessagesList}) {
-            state.isConnected = true;
-            state.roomMessagesList = roomMessagesList.sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
-            sessionStorage.setItem("username", user.username);
-            sessionStorage.setItem("password", user.password);
+        setConnected(state, {loginData, message, encodedPrivateKey, encodedPublicKey}) {
+            return new Promise(async (resolve) => {
+                const roomMessagesList = JSON.parse(message.body).roomMessagesList;
+
+                if (!(sessionStorage.getItem("username"))) {
+                    sessionStorage.setItem("username", loginData.username);
+                    sessionStorage.setItem("privateKey", encodedPrivateKey);
+                    sessionStorage.setItem("publicKey", encodedPublicKey);
+                    sessionStorage.setItem("password", loginData.password);
+                }
+
+                state.isConnected = true;
+                state.roomMessagesList = roomMessagesList.sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
+                resolve();
+            })
         },
         receiveMessage(state, message) {
             state.roomMessagesList.find(rml => rml.room.id === message.roomId).messages.push(message);
@@ -110,8 +138,7 @@ export const ws = {
         setDisconnected(state) {
             state.isConnected = false;
             state.roomMessagesList = [];
-            sessionStorage.removeItem("username");
-            sessionStorage.removeItem("password");
+            sessionStorage.clear();
         },
     },
 };

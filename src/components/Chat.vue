@@ -74,6 +74,8 @@
 
 <script>
 
+import store from "../store";
+
 export default {
   name: "ChatNew",
   data() {
