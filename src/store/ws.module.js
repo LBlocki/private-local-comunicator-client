@@ -7,33 +7,24 @@ export const ws = {
     state: {
         isConnected: false,
         roomMessagesList: [],
+        initialDataReady: false
     },
     actions: {
-        initializeConnection({commit}, loginData) {
+        async initializeConnection({commit}, loginData) {
             return new Promise(async (resolve, reject) => {
                 this.socket = new SockJS("http://localhost:8080/api/rest/v1/ws");
                 this.stompClient = Stomp.over(this.socket);
-                await this.stompClient.connect({
-                        username: loginData.username,
-                        password: loginData.password
-                    }, async () => {
-
+                await this.stompClient.connect({username: loginData.username, password: loginData.password}, async () => {
                         await this.stompClient.subscribe("/app/chat.private.fetch.initial.data", async message => {
                             if (!sessionStorage.getItem("username")) {
                                 const body = JSON.parse(message.body);
-                                const wrappedBinaryPrivateKey = await cryptoService.convertBase64ToKey(body.wrappedPrivateKey);
-                                const binaryIvForPrivateKey = await cryptoService.convertBase64ToKey(body.ivForPrivateKey);
-                                const privateKey = await cryptoService.unwrapKey(
-                                    wrappedBinaryPrivateKey, loginData.symmetricKey, "pkcs8", binaryIvForPrivateKey);
-                                const rawPrivateKey = await cryptoService.exportKey(privateKey, "pkcs8");
-
-                                const encodedPrivateKey = await cryptoService.convertKeyToBase64(rawPrivateKey);
-                                const encodedPublicKey = body.exportedPublicKey;
-
-                                commit('setConnected', {loginData, message, encodedPrivateKey, encodedPublicKey});
+                                const keys = await cryptoService.prepareFetchedKeysForStorageAfterLogin(body, loginData.symmetricKey);
+                                const encodedPrivateKey = keys.encodedPrivateKey;
+                                const encodedPublicKey = keys.encodedPublicKey;
+                                await commit('setConnected', {loginData, message, encodedPrivateKey, encodedPublicKey});
                                 resolve();
                             } else {
-                                commit('setConnected', {loginData, message});
+                                await commit('setConnected', {loginData, message});
                                 resolve();
                             }
                         });
@@ -48,11 +39,10 @@ export const ws = {
                             commit('receiveRoom', room);
                         });
 
-                        this.stompClient.subscribe(("/user/exchange/chat.private.messages.read"), message => {
+                        this.stompClient.subscribe(("/user/exchange/chat.private.messages.read"),  message => {
                             const roomId = JSON.parse(message.body);
                             commit('messagesRead', roomId);
                         })
-
                     },
                     (error) => {
                         commit('setDisconnected');
@@ -93,14 +83,25 @@ export const ws = {
         username: () => sessionStorage.getItem("username"),
         password: () => sessionStorage.getItem("password"),
         isConnected: state => !!state.isConnected,
-        roomMessagesList: state => state.roomMessagesList
+        roomMessages: (state) => (roomId) => {
+            return state.roomMessagesList.find(roomMessages => roomMessages.room.id === roomId)?.messages;
+        },
+        getRoom: (state) => (roomId) => {
+            return state.roomMessagesList.find(roomMessages => roomMessages.room.id === roomId)?.room;
+        },
+        idRoomDecrypted: (state) => (roomId) => {
+            return state.roomMessagesList.find(roomMessages => roomMessages.room.id === roomId)?.decrypted;
+        },
+        roomList: state => state.roomMessagesList.map(roomMessages => roomMessages.room)
     },
     mutations: {
-        setConnected(state, {loginData, message, encodedPrivateKey, encodedPublicKey}) {
+        async setConnected(state, {loginData, message, encodedPrivateKey, encodedPublicKey}) {
             return new Promise(async (resolve) => {
-                const roomMessagesList = JSON.parse(message.body).roomMessagesList;
 
-                if (!(sessionStorage.getItem("username"))) {
+                const roomMessagesList = JSON.parse(message.body).roomMessagesList;
+                const credentialsAlreadyProvided = sessionStorage.getItem("username");
+
+                if (!credentialsAlreadyProvided) {
                     sessionStorage.setItem("username", loginData.username);
                     sessionStorage.setItem("privateKey", encodedPrivateKey);
                     sessionStorage.setItem("publicKey", encodedPublicKey);
@@ -108,12 +109,35 @@ export const ws = {
                 }
 
                 state.isConnected = true;
-                state.roomMessagesList = roomMessagesList.sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
+
+                for (const roomMessages of roomMessagesList) {
+                    for (const message of roomMessages.messages) {
+                        for (const messageBody of message.messageBodies) {
+                            messageBody.body = await cryptoService.decryptBase64TextUsingBase64PrivateKey(
+                                messageBody.body, sessionStorage.getItem("privateKey"))
+                        }
+                    }
+                    roomMessages.decrypted = true;
+                }
+                state.roomMessagesList = roomMessagesList
+                    .sort((x, y) => new Date(x.creationDate) - new Date(y.creationDate));
                 resolve();
             })
         },
-        receiveMessage(state, message) {
-            state.roomMessagesList.find(rml => rml.room.id === message.roomId).messages.push(message);
+        async receiveMessage(state, message) {
+            return new Promise(async (resolve) => {
+                const body = message.messageBodies[0];
+                message.messageBodies = [
+                    {
+                        recipient: body.recipient,
+                        body: await cryptoService.decryptBase64TextUsingBase64PrivateKey(body.body,
+                            sessionStorage.getItem("privateKey"))
+                    }
+                ]
+                state.roomMessagesList.find(rml => rml.room.id === message.roomId).messages.push(message);
+                resolve();
+            })
+
         },
         receiveRoom(state, room) {
             state.roomMessagesList.push({

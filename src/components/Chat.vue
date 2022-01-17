@@ -2,27 +2,24 @@
   <div class="container-fluid" v-if="isConnected()">
     <div class="row">
       <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 search-container"
-           v-bind:class="{'no-show': !inRoomSelectionState()}">
+           v-bind:class="{'no-show': isRoomSelected()}">
         <div class="search-group">
           <div class="form-outline">
-            <input type="search" id="form1" v-model="searchedUsername" class="form-control"
-                   placeholder="Wyszukaj użytkownika" aria-label="Search"/>
+            <input type="search" id="form1" v-model="searchedUsername" class="form-control" placeholder="Wyszukaj użytkownika" aria-label="Search"/>
           </div>
         </div>
       </div>
       <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 chat-name-container" v-if="isRoomSelected()">
-        <font-awesome-icon @click="setRoomSelectionState(true)" class="back-icon" icon="arrow-left"/>
-        <span class="person-name"
-              v-if="isRoomSelected()">Rozmówca: <span>{{ getCurrentSelectedRoomName() }}</span></span>
+        <font-awesome-icon @click="setNewSelectedRoomId(undefined)" class="back-icon" icon="arrow-left"/>
+        <span class="person-name" v-if="isRoomSelected()">Rozmówca: <span>{{ getCurrentSelectedRoomName() }}</span></span>
       </div>
     </div>
-    <div class="row list-row">
-      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 user-list-container"
-           v-bind:class="{'no-show': !inRoomSelectionState()}">
+    <div class="row list-row" >
+      <div class="col-xl-4 col-lg-4 col-md-4 col-sm-3 user-list-container" v-bind:class="{'no-show': isRoomSelected()}">
         <ul class="m-0 p-0 person-list">
           <li class="person"
-              v-bind:class="{ 'active-user': isCurrentSelectedRoom(room)}"
-              @click="setNewSelectedRoom(room)"
+              v-bind:class="{ 'active-user': isCurrentSelectedRoom(room.id)}"
+              @click="setNewSelectedRoomId(room.id)"
               v-for="room in getRoomList()" :key="room.id">
             <img src="https://www.bootdey.com/img/Content/avatar/avatar1.png" alt="Retail Admin">
             <div class="d-flex flex-column">
@@ -32,24 +29,25 @@
           </li>
         </ul>
       </div>
-      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 position-relative"
-           v-bind:class="{'no-show': inRoomSelectionState()}">
-        <div v-if="isRoomSelected()" class="chat-container">
+      <div class="col-xl-8 col-lg-8 col-md-8 col-sm-9 position-relative" v-if="isRoomSelected()">
+        <div class="chat-container">
           <ul>
-            <li v-for="message in getMessagesForSelectedRoom()"
-                v-bind:class="{ 'chat-left': isUserMessageCreator(message), 'chat-right': !isUserMessageCreator(message)}">
+            <li v-for="message in messages" v-bind:class="{ 'chat-left': isUserMessageCreator(message), 'chat-right': !isUserMessageCreator(message)}">
               <div class="chat-avatar" v-if="isUserMessageCreator(message)">
                 <img src="../assets/other_profile.png" alt="Profile img">
                 <div class="chat-name">{{ getUserUsername() }}</div>
               </div>
-              <div class="chat-text chat-creator" v-if="isUserMessageCreator(message)">{{ message.body }}</div>
+              <div class="chat-text chat-creator" v-if="isUserMessageCreator(message)">{{ getMessageBody(message) }}
+              </div>
               <div class="chat-hour" v-if="isUserMessageCreator(message)">
                 {{ getFormattedDate(message.creationDate) }}<span
                   class="fa fa-check-circle"></span></div>
               <div class="chat-hour" v-if="!isUserMessageCreator(message)">
                 {{ getFormattedDate(message.creationDate) }}<span
                   class="fa fa-check-circle"></span></div>
-              <div class="chat-text chat-non-creator" v-if="!isUserMessageCreator(message)">{{ message.body }}</div>
+              <div class="chat-text chat-non-creator" v-if="!isUserMessageCreator(message)">
+                {{ getMessageBody(message) }}
+              </div>
               <div class="chat-avatar" v-if="!isUserMessageCreator(message)">
                 <img src="../assets/profile.png" alt="Profile img">
                 <div class="chat-name">{{ message.creatorUsername }}</div>
@@ -62,7 +60,7 @@
         </div>
         <div v-if="isRoomSelected()" class="form-group mt-3 mb-0 send-area">
           <textarea v-model="newMessageBody" class="form-control" rows="3"
-                    placeholder="Type your message here..."></textarea>
+                    placeholder="Zacznij pisać..."></textarea>
           <button @click="handleMessageSend" :disabled="sending || !newMessageBody"
                   class="btn btn-secondary w-25 send-button">Wyślij
           </button>
@@ -74,34 +72,36 @@
 
 <script>
 
-import store from "../store";
+import cryptoService from "../services/crypto.service";
 
 export default {
   name: "ChatNew",
   data() {
     return {
-      selectedRoom: undefined,
+      selectedRoomId: undefined,
       newMessageBody: undefined,
       roomSelectionState: true,
       searchedUsername: undefined,
+      messages: [],
       sending: false,
     }
   },
   created() {
 
     const isConnected = this.$store.getters['ws/isConnected'];
-    const hasCredentials = this.$store.getters['ws/username'] && this.$store.getters['ws/password'];
+    const username = this.$store.getters['ws/username'];
+    const password = this.$store.getters['ws/password'];
+    const hasCredentials = username && password;
 
     if (!isConnected && hasCredentials) {
-      this.$store.dispatch('ws/initializeConnection', {
-        username: this.$store.getters['ws/username'],
-        password: this.$store.getters['ws/password']
-      }).then(() => {
-        const id = parseInt(this.$router.currentRoute.value.query.id);
-        if (id) {
-          this.setNewSelectedRoom(this.getRoomById(id));
-        }
-      })
+      this.$store.dispatch('ws/initializeConnection', {username: username, password: password}).then(
+          () => {
+            const id = parseInt(this.$router.currentRoute.value.query.id);
+            console.log(id);
+            if (id) {
+              this.setNewSelectedRoomId(id);
+            }
+          })
     }
   },
   methods: {
@@ -109,38 +109,30 @@ export default {
       return this.$store.getters['ws/isConnected'];
     },
     isRoomSelected() {
-      return this.selectedRoom;
+      return this.selectedRoomId !== undefined;
     },
     getCurrentSelectedRoomName() {
-      return this.getRoomName(this.selectedRoom);
+      const room = this.$store.getters['ws/getRoom'](this.selectedRoomId);
+      return this.getRoomName(room);
     },
-    inRoomSelectionState() {
-      return this.roomSelectionState;
+    isCurrentSelectedRoom(roomId) {
+      return this.selectedRoomId === roomId;
     },
-    setRoomSelectionState(bool) {
-      this.roomSelectionState = bool;
-      if (this.roomSelectionState) {
-        this.selectedRoom = undefined;
+    setNewSelectedRoomId(roomId) {
+      if(roomId === undefined) {
+        this.selectedRoomId = undefined;
         this.$router.push({path: '/chat'});
+      } else {
+        this.selectedRoomId = roomId;
+        if (this.isNewMessageForRoom(roomId)) {
+          this.$store.dispatch('ws/setMessagesAsRead', roomId);
+        }
+        this.messages = this.$store.getters['ws/roomMessages'](this.selectedRoomId);
+        this.$router.push({path: '/chat', query: {id: roomId}});
       }
-    },
-    isCurrentSelectedRoom(room) {
-      return this.selectedRoom === room;
-    },
-    getRoomById(roomId) {
-      return this.getRoomList().find(room => room.id === roomId);
-    },
-    setNewSelectedRoom(room) {
-      this.selectedRoom = room;
-      if (this.isNewMessageForRoom(room.id)) {
-        this.$store.dispatch('ws/setMessagesAsRead', room.id);
-      }
-      this.setRoomSelectionState(false);
-      this.$router.push({path: '/chat', query: {id: room.id}});
     },
     getRoomList() {
-      return this.$store.getters['ws/roomMessagesList']
-          .map(roomMessages => roomMessages.room)
+      return this.$store.getters['ws/roomList']
           .filter(room => {
             if (this.searchedUsername) {
               const username = room.users.filter(user => user.username !== this.getUserUsername())[0].username;
@@ -149,14 +141,12 @@ export default {
             return true;
           });
     },
+    getMessageBody(message) {
+      return message?.messageBodies[0]?.body;
+    },
     getRoomName(room) {
-      return room.users.filter(user => user.username !== this.getUserUsername())[0].username;
+      return room?.users?.filter(user => user.username !== this.getUserUsername())[0]?.username;
     },
-    getMessagesForSelectedRoom() {
-      return this.$store.getters['ws/roomMessagesList']
-          .filter(roomMessages => roomMessages.room === this.selectedRoom)[0].messages;
-    },
-
     getFormattedDate(stringDate) {
       const date = new Date(stringDate);
       const hours = date.getHours() < 10 ? "0" + date.getHours() : date.getHours();
@@ -166,47 +156,64 @@ export default {
     isUserMessageCreator(message) {
       return message.creatorUsername === this.getUserUsername();
     },
-    getCurrentSelectedRoom() {
-      return this.selectedRoom;
+    getCurrentSelectedRoomId() {
+      return this.selectedRoomId;
     },
     handleMessageSend() {
       if (!this.sending && this.newMessageBody) {
         this.sending = true;
-        const message = {
-          id: undefined,
-          creatorUsername: this.getUserUsername(),
-          roomId: this.getCurrentSelectedRoom().id,
-          body: this.newMessageBody,
-          creationDate: new Date()
-        };
-        const recipient = this.getCurrentSelectedRoom().users.filter(user => user.username !== this.getUserUsername())[0].username;
-        this.$store.dispatch('ws/sendMessage', {message, recipient}).then(
-            () => {
-              this.newMessageBody = '';
-              this.sending = false;
-            },
-            () => this.sending = false);
+        const room = this.$store.getters['ws/getRoom'](this.selectedRoomId);
+        this.encodeMessageBodiesForUsers(this.newMessageBody, room.users).then(bodies => {
+          const recipient = room.users.filter(user => user.username !== this.getUserUsername())[0].username;
+          const message = {
+            id: undefined,
+            creatorUsername: this.getUserUsername(),
+            roomId: room.id,
+            messageBodies: bodies,
+            creationDate: new Date()
+          };
+
+          this.$store.dispatch('ws/sendMessage', {message, recipient}).then(
+              () => {
+                this.newMessageBody = '';
+                this.sending = false;
+              },
+              () => this.sending = false);
+        });
       }
+    },
+    async encodeMessageBodiesForUsers(message, users) {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const bodies = await Promise.all(users.map(async user => {
+            return {
+              recipient: user.username,
+              body: await cryptoService.encryptWithBase64PublicKeyAndConvertToBase64(message, user.encodedPublicKey)
+            };
+          }));
+          resolve(bodies);
+        } catch (error) {
+          reject(error);
+        }
+      });
     },
     getUserUsername() {
       return this.$store.getters['ws/username'];
     },
     isNewMessageForRoom(roomId) {
-      const messages = this.$store.getters['ws/roomMessagesList']
-          .filter(roomMessages => roomMessages.room.id === roomId)[0].messages;
-
-      const myMessages = messages.filter(message => message.creatorUsername !== this.getUserUsername());
+      const messages = this.$store.getters['ws/roomMessages'](this.selectedRoomId);
+      const myMessages = messages ? messages.filter(message => message.creatorUsername !== this.getUserUsername()) : [];
 
       if (myMessages && myMessages.length > 0) {
         const isRead = myMessages[myMessages.length - 1].readByRecipient;
-        if (this.getCurrentSelectedRoom() && this.getCurrentSelectedRoom().id === roomId && !isRead) {
+        if (this.selectedRoomId && this.selectedRoomId === roomId && !isRead) {
           this.$store.dispatch('ws/setMessagesAsRead', roomId);
         }
         return !isRead;
       }
       return false;
     },
-  }
+  },
 };
 
 </script>
@@ -519,6 +526,10 @@ ul {
 }
 
 @media (max-width: 576px) {
+  .no-room-text {
+    display: none;
+  }
+
   .no-show {
     display: none;
   }

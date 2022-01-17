@@ -30,7 +30,7 @@
 
 import {Form, Field, ErrorMessage} from "vee-validate";
 import * as yup from "yup";
-import CryptoService from "../services/crypto.service";
+import cryptoService from "../services/crypto.service";
 
 export default {
   name: "Login",
@@ -58,22 +58,10 @@ export default {
 
       try {
         const iv = (await this.$store.dispatch('auth/getIvForWrappedSymmetricKey', user.username)).data;
-        const symmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, user.username);
-        const newSalt = await CryptoService.digest(user.username);
-        const arrayBufferIv = await CryptoService.convertBase64ToKey(iv);
-        const wrappingSymmetricCryptoKey = await CryptoService.deriveSymmetricCryptoKey(user.password, newSalt);
-        const wrappedSymmetricKey = await CryptoService.wrapKeyUsingPredefinedIV(symmetricCryptoKey,
-            wrappingSymmetricCryptoKey, "raw", arrayBufferIv);
-
-        const loginData = {
-          username: user.username,
-          password: await CryptoService.convertKeyToBase64(wrappedSymmetricKey.key),
-          symmetricKey: symmetricCryptoKey
-        }
+        const loginData = await cryptoService.generateKeysForLoginPhase(user.username, user.password, iv);
 
         this.$store.dispatch('ws/initializeConnection', loginData).then(
             () => {
-              console.log('routing');
               this.$router.push('/chat');
             },
             () => {

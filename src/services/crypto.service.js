@@ -1,5 +1,84 @@
 class CryptoService {
 
+    async prepareFetchedKeysForStorageAfterLogin(messageBody, symmetricKey) {
+        const wrappedBinaryPrivateKey = await this.convertBase64ToArrayBuffer(messageBody.wrappedPrivateKey);
+        const binaryIvForPrivateKey = await this.convertBase64ToArrayBuffer(messageBody.ivForPrivateKey);
+        const privateKey = await this.unwrapKey(wrappedBinaryPrivateKey, symmetricKey,
+            "pkcs8", binaryIvForPrivateKey);
+        const rawPrivateKey = await this.exportKey(privateKey, "pkcs8");
+
+        const encodedPrivateKey = await this.convertToBase64(rawPrivateKey);
+        const encodedPublicKey = messageBody.exportedPublicKey;
+
+        return {encodedPrivateKey, encodedPublicKey}
+    }
+
+    async encryptWithBase64PublicKeyAndConvertToBase64(plainText, base64PublicKey) {
+        const encoder = new TextEncoder();
+        const arrayBufferPublicKey = await this.convertBase64ToArrayBuffer(base64PublicKey);
+        const publicKey = await this.importKey(arrayBufferPublicKey, "spki", "encrypt");
+        const encryptedMessage = await window.crypto.subtle.encrypt({"name": "RSA-OAEP"},
+            publicKey, encoder.encode(plainText));
+        return await this.convertToBase64(encryptedMessage);
+    }
+
+    async decryptBase64TextUsingBase64PrivateKey(base64Text, base64PrivateKey) {
+        const arrayBufferPrivateKey = await this.convertBase64ToArrayBuffer(base64PrivateKey);
+        const privateKey = await this.importKey(arrayBufferPrivateKey, "pkcs8", "decrypt");
+        const arrayBufferData = await this.convertBase64ToArrayBuffer(base64Text);
+        const decryptedArray = await window.crypto.subtle.decrypt({"name": "RSA-OAEP"},
+            privateKey, arrayBufferData);
+
+        return new TextDecoder().decode(decryptedArray);
+    }
+
+    async generateKeysForRegistrationPhase(username, password) {
+
+        //generacja pary RSA
+        const cryptoKeyPair = await this.generateKeyPair();
+
+        //generacja klucza symetrycznego:
+        const symmetricCryptoKey = await this.deriveSymmetricCryptoKey(password, username);
+
+        //generacja klucza wrappującego do hashu klucza symetrycznego
+        const newSalt = await this.digest(username);
+        const wrappingSymmetricCryptoKey = await this.deriveSymmetricCryptoKey(password, newSalt);
+
+        //Wrappowanie klucza prywatnego
+        const wrappedPrivateKey = await this.wrapKey(cryptoKeyPair.privateKey, symmetricCryptoKey, "pkcs8");
+
+        //wrappowanie klucza symetrycznego
+        const wrappedSymmetricKey = await this.wrapKey(symmetricCryptoKey, wrappingSymmetricCryptoKey, "raw");
+
+        //export klucza publicznego
+        const exportedPublicKey = await this.exportKey(cryptoKeyPair.publicKey, "spki");
+
+        return {
+            username: username,
+            wrappedPrivateKey: await this.convertToBase64(wrappedPrivateKey.key),
+            exportedPublicKey: await this.convertToBase64(exportedPublicKey),
+            wrappedSymmetricKey: await this.convertToBase64(wrappedSymmetricKey.key),
+            ivForPrivateKey: await this.convertToBase64(wrappedPrivateKey.iv),
+            ivForSymmetricKey: await this.convertToBase64(wrappedSymmetricKey.iv)
+        }
+
+    }
+
+    async generateKeysForLoginPhase(username, password, iv) {
+        const symmetricCryptoKey = await this.deriveSymmetricCryptoKey(password, username);
+        const newSalt = await this.digest(username);
+        const arrayBufferIv = await this.convertBase64ToArrayBuffer(iv);
+        const wrappingSymmetricCryptoKey = await this.deriveSymmetricCryptoKey(password, newSalt);
+        const wrappedSymmetricKey = await this.wrapKeyUsingPredefinedIV(symmetricCryptoKey,
+            wrappingSymmetricCryptoKey, "raw", arrayBufferIv);
+
+        return {
+            username: username,
+            password: await this.convertToBase64(wrappedSymmetricKey.key),
+            symmetricKey: symmetricCryptoKey
+        }
+    }
+
     async deriveSymmetricCryptoKey(input, salt) {
         const encoder = new TextEncoder();
         return window.crypto.subtle.importKey(
@@ -95,12 +174,12 @@ class CryptoService {
         );
     }
 
-    async convertKeyToBase64(key) {
-        return btoa(String.fromCharCode(...new Uint8Array(key)));
+    async convertToBase64(arrayBuffer) {
+        return btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     }
 
-    async convertBase64ToKey(text) {
-        const rawString = atob(text);
+    async convertBase64ToArrayBuffer(base64Data) {
+        const rawString = atob(base64Data);
         const array = new Uint8Array(rawString.length);
 
         for (let i = 0; i < rawString.length; i++) {
